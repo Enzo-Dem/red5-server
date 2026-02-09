@@ -119,6 +119,7 @@ public class RTMPMinaTransport implements RTMPMinaTransportMXBean {
      *
      * @throws java.lang.Exception if any.
      */
+    //    TODO: voir pour refacto
     public void start() throws Exception {
         initIOHandler();
         IoBuffer.setUseDirectBuffer(!useHeapBuffers); // this is global, oh well

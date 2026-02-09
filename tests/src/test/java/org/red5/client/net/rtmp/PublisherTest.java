@@ -149,6 +149,8 @@ abstract class PublisherTest {
      *
      * @throws InterruptedException if the thread is interrupted during execution
      */
+
+//    TODO: loooooong test
     @Test
     public void testPublish() throws InterruptedException {
         log.info("\ntestPublish");

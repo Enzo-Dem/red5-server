@@ -464,6 +464,7 @@ public class RTMP {
     /**
      * Class for mapping between clock time and stream time for live streams
      */
+    //    TODO: nested class
     final class LiveTimestampMapping {
 
         private final long clockStartTime;

@@ -24,6 +24,7 @@ public class RTMPEClientTest {
     }
 
     @Test
+//TODO: nom de test ?
     public void test() {
         log.info("Starting RTMPE: {}", Red5Client.getVersion());
         // source
@@ -41,13 +42,14 @@ public class RTMPEClientTest {
         client.connect(host, port, app, clientCallback);
         try {
             // sleep this main thread for 10 minutes
-            Thread.sleep(TimeUnit.MILLISECONDS.convert(10, TimeUnit.MINUTES));
+            Thread.sleep(TimeUnit.MILLISECONDS.convert(10, TimeUnit.SECONDS));
         } catch (Exception e) {
             log.warn("Exception during sleep", e);
         }
         log.info("Client exiting");
     }
 
+//    TODO: des tests commentés (pas executés)
     //@Test
     public void testWriter() {
         log.info("Starting RTMPE with writer: {}", Red5Client.getVersion());
@@ -86,6 +88,7 @@ public class RTMPEClientTest {
         log.info("Client exiting");
     }
 
+//    TODO: des tests commentés (pas executés)
     //@Test
     public void testProxy() {
         log.info("Starting RTMPE with proxy: {}", Red5Client.getVersion());
