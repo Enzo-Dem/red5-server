@@ -22,6 +22,7 @@ import org.red5.io.utils.LEB128;
 import org.red5.io.utils.LEB128.LEB128Result;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.lang.NonNull;
 
 /**
  * Parsers OBU providing headers and extract relevant data. Logic is derived from the C code in the obuparser project.
@@ -75,47 +76,40 @@ public class OBUParser {
      */
     public static OBUInfo getNextObu(byte[] buf, int offset, int bufSize) throws OBUParseException {
         log.trace("getNextObu - buffer length: {} size: {} offset: {}", buf.length, bufSize, offset);
-        if (bufSize < 1) {
-            throw new OBUParseException("Buffer is too small to contain an OBU");
-        }
-        if (buf.length < (offset + 1)) {
-            throw new OBUParseException("Buffer is too small for given offset");
-        }
+
+        // Validation
+        validateBuffer(buf, offset, bufSize);
+
+        OBUInfo info = new OBUInfo();
         int pos = offset;
-        int obuType = (buf[pos] & OBU_FRAME_TYPE_MASK) >>> OBU_FRAME_TYPE_BITSHIFT;
-        if (!isValidObu(obuType)) {
-            log.warn("OBU header contains invalid OBU type: {} data: {}", obuType, HexDump.byteArrayToHexString(buf));
-            throw new OBUParseException("OBU header contains invalid OBU type: " + obuType);
-        }
-        OBUInfo info = new OBUInfo(OBUType.fromValue(obuType), ByteBuffer.allocate(1180));
-        boolean obuExtensionFlag = obuHasExtension(buf[pos]);
-        boolean obuHasSizeField = obuHasSize(buf[pos]);
-        log.trace("OBU type: {} extension? {} size field? {}", info.getObuType(), obuExtensionFlag, obuHasSizeField);
+
+        // Type Header
+        parseObuType(buf, pos, info);
+        boolean hasExtension = obuHasExtension(buf[pos]);
+        boolean hasSizeField = obuHasSize(buf[pos]);
+        log.trace("OBU type: {} extension? {} size field? {}", info.getObuType(), hasExtension, hasSizeField);
         pos++; // move past the OBU header
-        if (obuExtensionFlag) {
-            if (bufSize < pos + 1) {
-                throw new OBUParseException("Buffer is too small to contain an OBU extension header");
-            }
-            info.setTemporalId((buf[pos] & 0xE0) >> 5);
-            info.setSpatialId((buf[pos] & 0x18) >> 3);
-            log.trace("Temporal id: {} spatial id: {}", info.getTemporalId(), info.getSpatialId());
+
+        // Extension Header
+        if (hasExtension) {
+            parseExtensionHeader(buf, bufSize, pos, info);
             pos++; // move past the OBU extension header
         }
-        if (obuHasSizeField) {
-            byte[] lengthBytes = new byte[buf[pos] == 127 ? 2 : 1];
-            System.arraycopy(buf, pos, lengthBytes, 0, lengthBytes.length);
-            LEB128Result result = LEB128.decode(lengthBytes);
-            pos += result.bytesRead;
+
+        // Sizing
+        if (hasSizeField) {
+            LEB128Result result = readObuSizeValue(buf, pos);
             info.setSize(result.value);
+            pos += result.bytesRead;
             log.trace("OBU had size field: {}", info.getSize());
         } else {
             info.setSize(bufSize - pos);
         }
         log.trace("OBU size: {}", info.getSize());
-        info.setData(ByteBuffer.wrap(Arrays.copyOfRange(buf, pos, (pos + info.getSize()))));
-        if (info.getSize() > bufSize - pos) {
-            throw new OBUParseException("Invalid OBU size: larger than remaining buffer");
-        }
+
+        // Data
+        finalizeObuData(buf, bufSize, pos, info);
+
         return info;
     }
 
@@ -606,6 +600,50 @@ public class OBUParser {
         return (obuHeader & OBU_SIZE_PRESENT_BIT) != 0;
     }
 
+
+    private static void finalizeObuData(byte[] buf, int bufSize, int pos, OBUInfo info) throws OBUParseException {
+        int remainingInBuffer = bufSize - pos;
+        if (info.getSize() > remainingInBuffer) {
+            throw new OBUParseException("Invalid OBU size: larger than remaining buffer");
+        }
+        byte[] dataArray = Arrays.copyOfRange(buf, pos, (pos + info.getSize()));
+        info.setData(ByteBuffer.wrap(dataArray));
+    }
+
+    @NonNull
+    private static LEB128Result readObuSizeValue(byte[] buf, int pos) {
+        byte[] lengthBytes = new byte[buf[pos] == 127 ? 2 : 1];
+        System.arraycopy(buf, pos, lengthBytes, 0, lengthBytes.length);
+        LEB128Result result = LEB128.decode(lengthBytes);
+        return result;
+    }
+
+    private static void parseExtensionHeader(byte[] buf, int bufSize, int pos, OBUInfo info) throws OBUParseException {
+        if (bufSize < pos + 1) {
+            throw new OBUParseException("Buffer is too small to contain an OBU extension header");
+        }
+        info.setTemporalId((buf[pos] & 0xE0) >> 5);
+        info.setSpatialId((buf[pos] & 0x18) >> 3);
+        log.trace("Temporal id: {} spatial id: {}", info.getTemporalId(), info.getSpatialId());
+    }
+
+    private static void parseObuType(byte[] buf, int pos, OBUInfo info) throws OBUParseException {
+        int obuType = (buf[pos] & OBU_FRAME_TYPE_MASK) >>> OBU_FRAME_TYPE_BITSHIFT;
+        if (!isValidObu(obuType)) {
+            log.warn("OBU header contains invalid OBU type: {} data: {}", obuType, HexDump.byteArrayToHexString(buf));
+            throw new OBUParseException("OBU header contains invalid OBU type: " + obuType);
+        }
+        info.setObuType(OBUType.fromValue(obuType));
+    }
+
+    private static void validateBuffer(byte[] buf, int offset, int bufSize) throws OBUParseException {
+        if (bufSize < 1) {
+            throw new OBUParseException("Buffer is too small to contain an OBU");
+        }
+        if (buf.length < (offset + 1)) {
+            throw new OBUParseException("Buffer is too small for given offset");
+        }
+    }
 
     /**
      * Parses a frame header OBU and fills out the fields in the provided {@link OBPFrameHeader} structure.

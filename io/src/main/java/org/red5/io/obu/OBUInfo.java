@@ -28,6 +28,13 @@ public class OBUInfo {
     private ByteBuffer data;
 
     /**
+     * Default constructor.
+     * Allows creating an empty OBUInfo object to be filled later via setters.
+     */
+    public OBUInfo() {
+    }
+
+    /**
      * Fully parameterized constructor for OBUInfo.
      */
     public OBUInfo(OBUType obuType, int size, int temporalId, int spatialId, byte[] prefix, ByteBuffer data) {
