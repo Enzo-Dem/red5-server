@@ -32,8 +32,6 @@ public class OBUParser {
 
     private static final Logger log = LoggerFactory.getLogger(OBUParser.class);
 
-    private static final Set<Integer> VALID_OBU_TYPES = Set.of(SEQUENCE_HEADER.getValue(), TEMPORAL_DELIMITER.getValue(), FRAME_HEADER.getValue(), TILE_GROUP.getValue(), METADATA.getValue(), FRAME.getValue(), REDUNDANT_FRAME_HEADER.getValue(), TILE_LIST.getValue(), PADDING.getValue());
-
     /** Constant <code>OBU_START_FRAGMENT_BIT=(byte) 0b1000_0000</code> */
     public static final byte OBU_START_FRAGMENT_BIT = (byte) 0b1000_0000; // 0b1'0000'000
 
@@ -60,6 +58,8 @@ public class OBUParser {
 
     /** Constant <code>OBU_TYPE_SHIFT=3</code> */
     public static final byte OBU_TYPE_SHIFT = 3;
+
+    private static final Set<Integer> VALID_OBU_TYPES = Set.of(SEQUENCE_HEADER.getValue(), TEMPORAL_DELIMITER.getValue(), FRAME_HEADER.getValue(), TILE_GROUP.getValue(), METADATA.getValue(), FRAME.getValue(), REDUNDANT_FRAME_HEADER.getValue(), TILE_LIST.getValue(), PADDING.getValue());
 
 
     /**
@@ -334,6 +334,276 @@ public class OBUParser {
         seq.filmGrainParamsPresent = br.readBits(1) != 0;
 
         return seq;
+    }
+
+
+    /**
+     * Parses a frame OBU and fills out the fields in the user-provided {@link OBPFrameHeader}
+     * and {@link OBPTileGroup} structures.
+     *
+     * @param buf             Input OBU buffer. This is expected to *NOT* contain the OBU header.
+     * @param bufSize         Size of the input OBU buffer.
+     * @param seq             The sequence header associated with this frame.
+     * @param state           An opaque state structure. Must be zeroed by the user on first use.
+     * @param temporalId      A temporal ID previously obtained from the sequence header.
+     * @param spatialId       A spatial ID previously obtained from the sequence header.
+     * @param fh              The {@link OBPFrameHeader} structure to be filled with the parsed data.
+     * @param tileGroup       The {@link OBPTileGroup} structure to be filled with the parsed data.
+     * @param SeenFrameHeader Tracking variable as per AV1 spec indicating if a frame header has been seen.
+     * @throws OBUParseException If the frame header or tile group fails to parse.
+     */
+    public static void parseFrame(byte[] buf, int bufSize, OBPSequenceHeader seq, OBPState state, int temporalId, int spatialId, OBPFrameHeader fh, OBPTileGroup tileGroup, AtomicBoolean SeenFrameHeader) throws OBUParseException {
+        int startBitPos = 0, endBitPos, headerBytes;
+        parseFrameHeader(buf, bufSize, seq, state, temporalId, spatialId, fh, SeenFrameHeader);
+        endBitPos = state.frameHeaderEndPos;
+        headerBytes = (endBitPos - startBitPos) / 8;
+        parseTileGroup(buf, headerBytes, bufSize - headerBytes, fh, tileGroup, SeenFrameHeader);
+    }
+
+
+    /**
+     * Parses a metadata OBU and extracts the relevant fields.
+     * This OBU's returned payload is *NOT* safe to use once the input 'buf' has
+     * been freed, since it may contain references to offsets in that data.
+     *
+     * @param buf     Input OBU buffer. This is expected to *NOT* contain the OBU header.
+     * @param bufSize Size of the input OBU buffer.
+     * @return An {@link OBPMetadata} object containing the parsed metadata.
+     * @throws OBUParseException If the metadata type is invalid or parsing fails.
+     */
+    public static OBPMetadata parseMetadata(byte[] buf, int bufSize) throws OBUParseException {
+        OBPMetadata metadata = new OBPMetadata();
+        int consumed;
+        // int will only be 4 bytes long max
+        LEB128Result result = LEB128.decode(buf);
+        int leb = result.value;
+        consumed = result.bytesRead;
+        metadata.metadataType = OBPMetadataType.fromValue(leb);
+        BitReader br = new BitReader(buf, consumed, bufSize - consumed);
+        switch (metadata.metadataType) {
+            case HDR_CLL:
+                metadata.metadataHdrCll = new OBPMetadata.MetadataHdrCll();
+                metadata.metadataHdrCll.maxCll = (short) br.readBits(16);
+                metadata.metadataHdrCll.maxFall = (short) br.readBits(16);
+                break;
+            case HDR_MDCV:
+                metadata.metadataHdrMdcv = new OBPMetadata.MetadataHdrMdcv();
+                for (int i = 0; i < 3; i++) {
+                    metadata.metadataHdrMdcv.primaryChromaticityX[i] = (short) br.readBits(16);
+                    metadata.metadataHdrMdcv.primaryChromaticityY[i] = (short) br.readBits(16);
+                }
+                metadata.metadataHdrMdcv.whitePointChromaticityX = (short) br.readBits(16);
+                metadata.metadataHdrMdcv.whitePointChromaticityY = (short) br.readBits(16);
+                metadata.metadataHdrMdcv.luminanceMax = br.readBits(32);
+                metadata.metadataHdrMdcv.luminanceMin = br.readBits(32);
+                break;
+            case SCALABILITY:
+                metadata.metadataScalability = new OBPMetadata.MetadataScalability();
+                metadata.metadataScalability.scalabilityModeIdc = (byte) br.readBits(8);
+                if (metadata.metadataScalability.scalabilityModeIdc != 0) {
+                    metadata.metadataScalability.scalabilityStructure = new OBPMetadata.MetadataScalability.ScalabilityStructure();
+                    parseScalabilityStructure(br, metadata.metadataScalability.scalabilityStructure);
+                }
+                break;
+            case ITUT_T35:
+                metadata.metadataItutT35 = new OBPMetadata.MetadataItutT35();
+                metadata.metadataItutT35.ituTT35CountryCode = (byte) br.readBits(8);
+                long offset = 1;
+                if (metadata.metadataItutT35.ituTT35CountryCode == 0xFF) {
+                    metadata.metadataItutT35.ituTT35CountryCodeExtensionByte = (byte) br.readBits(8);
+                    offset++;
+                }
+                metadata.metadataItutT35.ituTT35PayloadBytes = Arrays.copyOfRange(buf, (int) (consumed + offset), buf.length);
+                metadata.metadataItutT35.ituTT35PayloadBytesSize = findItuT35PayloadSize(metadata.metadataItutT35.ituTT35PayloadBytes);
+                break;
+            case TIMECODE:
+                metadata.metadataTimecode = new OBPMetadata.MetadataTimecode();
+                metadata.metadataTimecode.countingType = (byte) br.readBits(5);
+                metadata.metadataTimecode.fullTimestampFlag = br.readBits(1) != 0;
+                metadata.metadataTimecode.discontinuityFlag = br.readBits(1) != 0;
+                metadata.metadataTimecode.cntDroppedFlag = br.readBits(1) != 0;
+                metadata.metadataTimecode.nFrames = (short) br.readBits(9);
+                if (metadata.metadataTimecode.fullTimestampFlag) {
+                    metadata.metadataTimecode.secondsValue = (byte) br.readBits(6);
+                    metadata.metadataTimecode.minutesValue = (byte) br.readBits(6);
+                    metadata.metadataTimecode.hoursValue = (byte) br.readBits(5);
+                } else {
+                    metadata.metadataTimecode.secondsFlag = br.readBits(1) != 0;
+                    if (metadata.metadataTimecode.secondsFlag) {
+                        metadata.metadataTimecode.secondsValue = (byte) br.readBits(6);
+                        metadata.metadataTimecode.minutesFlag = br.readBits(1) != 0;
+                        if (metadata.metadataTimecode.minutesFlag) {
+                            metadata.metadataTimecode.minutesValue = (byte) br.readBits(6);
+                            metadata.metadataTimecode.hoursFlag = br.readBits(1) != 0;
+                            if (metadata.metadataTimecode.hoursFlag) {
+                                metadata.metadataTimecode.hoursValue = (byte) br.readBits(5);
+                            }
+                        }
+                    }
+                }
+                metadata.metadataTimecode.timeOffsetLength = (byte) br.readBits(5);
+                if (metadata.metadataTimecode.timeOffsetLength > 0) {
+                    metadata.metadataTimecode.timeOffsetValue = br.readBits(metadata.metadataTimecode.timeOffsetLength);
+                }
+                break;
+            default:
+                if (metadata.metadataType.getValue() >= 6 && metadata.metadataType.getValue() <= 31) {
+                    metadata.unregistered = new OBPMetadata.Unregistered();
+                    metadata.unregistered.buf = Arrays.copyOfRange(buf, (int) consumed, buf.length);
+                    metadata.unregistered.bufSize = bufSize - consumed;
+                } else {
+                    throw new OBUParseException("Invalid metadata type: " + metadata.metadataType.getValue());
+                }
+        }
+        return metadata;
+    }
+
+
+    /**
+     * Parses a tile list OBU and extracts the relevant fields.
+     * This OBU's returned payload is *NOT* safe to use once the input 'buf' has
+     * been freed, since it may contain references to offsets in that data.
+     *
+     * @param buf     Input OBU buffer. This is expected to *NOT* contain the OBU header.
+     * @param bufSize Size of the input OBU buffer.
+     * @return An {@link OBPTileList} object containing the parsed tile list data.
+     * @throws OBUParseException If the tile list OBU is malformed or too small.
+     */
+    public static OBPTileList parseTileList(byte[] buf, long bufSize) throws OBUParseException {
+        OBPTileList tileList = new OBPTileList();
+        int pos = 0;
+        if (bufSize < 4) {
+            throw new OBUParseException("Tile list OBU must be at least 4 bytes");
+        }
+        tileList.outputFrameWidthInTilesMinus1 = buf[0];
+        tileList.outputFrameHeightInTilesMinus1 = buf[1];
+        tileList.tileCountMinus1 = (short) (((buf[2] & 0xFF) << 8) | (buf[3] & 0xFF));
+        pos += 4;
+        tileList.tileListEntry = new OBPTileList.TileListEntry[tileList.tileCountMinus1 + 1];
+        for (int i = 0; i <= tileList.tileCountMinus1; i++) {
+            if (pos + 5 > bufSize) {
+                throw new OBUParseException("Tile list OBU malformed: Not enough bytes for next tile_list_entry()");
+            }
+            OBPTileList.TileListEntry entry = new OBPTileList.TileListEntry();
+            entry.anchorFrameIdx = buf[pos];
+            entry.anchorTileRow = buf[pos + 1];
+            entry.anchorTileCol = buf[pos + 2];
+            entry.tileDataSizeMinus1 = (short) (((buf[pos + 3] & 0xFF) << 8) | (buf[pos + 4] & 0xFF));
+            pos += 5;
+            int N = 8 * (entry.tileDataSizeMinus1 + 1);
+            if (pos + N > bufSize) {
+                throw new OBUParseException("Tile list OBU malformed: Not enough bytes for next tile_list_entry()'s data");
+            }
+            entry.codedTileData = Arrays.copyOfRange(buf, pos, (pos + N));
+            entry.codedTileDataSize = N;
+            pos += N;
+            tileList.tileListEntry[i] = entry;
+        }
+        return tileList;
+    }
+
+    /**
+     * Returns true if the given OBU type value is valid.
+     *
+     * @param type the OBU type value
+     * @return true if the given OBU type value is valid
+     */
+    public static boolean isValidObu(int type) {
+        return VALID_OBU_TYPES.contains(type);
+    }
+
+    /**
+     * Returns true if the given OBU type is valid.
+     *
+     * @param type the OBU type
+     * @return true if the given OBU type is valid
+     */
+    public static boolean isValidObu(OBUType type) {
+        switch (type) {
+            case SEQUENCE_HEADER:
+            case FRAME_HEADER:
+            case TILE_GROUP:
+            case METADATA:
+            case FRAME:
+            case REDUNDANT_FRAME_HEADER:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * Returns true if the given byte starts a fragment. This is denoted as Z in the spec: MUST be set to 1 if the
+     * first OBU element is an OBU fragment that is a continuation of an OBU fragment from the previous packet, and
+     * MUST be set to 0 otherwise.
+     *
+     * @param aggregationHeader a byte
+     * @return true if the given byte starts a fragment
+     */
+    public static boolean startsWithFragment(byte aggregationHeader) {
+        return (aggregationHeader & OBU_START_FRAGMENT_BIT) != 0;
+    }
+
+    /**
+     * Returns true if the given byte ends a fragment. This is denoted as Y in the spec: MUST be set to 1 if the last
+     * OBU element is an OBU fragment that will continue in the next packet, and MUST be set to 0 otherwise.
+     *
+     * @param aggregationHeader a byte
+     * @return true if the given byte ends a fragment
+     */
+    public static boolean endsWithFragment(byte aggregationHeader) {
+        return (aggregationHeader & OBU_END_FRAGMENT_BIT) != 0;
+    }
+
+    /**
+     * Returns true if the given byte is the starts a new sequence. This denoted as N in the spec: MUST be set to 1 if
+     * the packet is the first packet of a coded video sequence, and MUST be set to 0 otherwise.
+     *
+     * @param aggregationHeader a byte
+     * @return true if the given byte starts a new sequence
+     */
+    public static boolean startsNewCodedVideoSequence(byte aggregationHeader) {
+        return (aggregationHeader & OBU_START_SEQUENCE_BIT) != 0;
+    }
+
+    /**
+     * Returns expected number of OBU's.
+     *
+     * @param aggregationHeader a byte
+     * @return expected number of OBU's
+     */
+    public static int obuCount(byte aggregationHeader) {
+        return (aggregationHeader & OBU_COUNT_MASK) >> 4;
+    }
+
+    /**
+     * Returns the OBU type from the given byte.
+     *
+     * @param obuHeader a byte
+     * @return the OBU type
+     */
+    public static int obuType(byte obuHeader) {
+        return (obuHeader & OBU_TYPE_MASK) >>> 3;
+    }
+
+    /**
+     * Returns whether or not the OBU has an extension.
+     *
+     * @param obuHeader a byte
+     * @return true if the OBU has an extension
+     */
+    public static boolean obuHasExtension(byte obuHeader) {
+        return (obuHeader & OBU_EXT_BIT) != 0;
+    }
+
+    /**
+     * Returns whether or not the OBU has a size.
+     *
+     * @param obuHeader a byte
+     * @return true if the OBU has a size
+     */
+    public static boolean obuHasSize(byte obuHeader) {
+        return (obuHeader & OBU_SIZE_PRESENT_BIT) != 0;
     }
 
 
@@ -888,30 +1158,6 @@ public class OBUParser {
 
 
     /**
-     * Parses a frame OBU and fills out the fields in the user-provided {@link OBPFrameHeader}
-     * and {@link OBPTileGroup} structures.
-     *
-     * @param buf             Input OBU buffer. This is expected to *NOT* contain the OBU header.
-     * @param bufSize         Size of the input OBU buffer.
-     * @param seq             The sequence header associated with this frame.
-     * @param state           An opaque state structure. Must be zeroed by the user on first use.
-     * @param temporalId      A temporal ID previously obtained from the sequence header.
-     * @param spatialId       A spatial ID previously obtained from the sequence header.
-     * @param fh              The {@link OBPFrameHeader} structure to be filled with the parsed data.
-     * @param tileGroup       The {@link OBPTileGroup} structure to be filled with the parsed data.
-     * @param SeenFrameHeader Tracking variable as per AV1 spec indicating if a frame header has been seen.
-     * @throws OBUParseException If the frame header or tile group fails to parse.
-     */
-    public static void parseFrame(byte[] buf, int bufSize, OBPSequenceHeader seq, OBPState state, int temporalId, int spatialId, OBPFrameHeader fh, OBPTileGroup tileGroup, AtomicBoolean SeenFrameHeader) throws OBUParseException {
-        int startBitPos = 0, endBitPos, headerBytes;
-        parseFrameHeader(buf, bufSize, seq, state, temporalId, spatialId, fh, SeenFrameHeader);
-        endBitPos = state.frameHeaderEndPos;
-        headerBytes = (endBitPos - startBitPos) / 8;
-        parseTileGroup(buf, headerBytes, bufSize - headerBytes, fh, tileGroup, SeenFrameHeader);
-    }
-
-
-    /**
      * Parses a tile group OBU and fills out the fields in the provided {@link OBPTileGroup} structure.
      *
      * @param buf             Input OBU buffer. This is expected to *NOT* contain the OBU header.
@@ -966,148 +1212,6 @@ public class OBUParser {
         if (tileGroup.tgEnd == tileGroup.numTiles - 1) {
             SeenFrameHeader.set(false);
         }
-    }
-
-
-    /**
-     * Parses a metadata OBU and extracts the relevant fields.
-     * This OBU's returned payload is *NOT* safe to use once the input 'buf' has
-     * been freed, since it may contain references to offsets in that data.
-     *
-     * @param buf     Input OBU buffer. This is expected to *NOT* contain the OBU header.
-     * @param bufSize Size of the input OBU buffer.
-     * @return An {@link OBPMetadata} object containing the parsed metadata.
-     * @throws OBUParseException If the metadata type is invalid or parsing fails.
-     */
-    public static OBPMetadata parseMetadata(byte[] buf, int bufSize) throws OBUParseException {
-        OBPMetadata metadata = new OBPMetadata();
-        int consumed;
-        // int will only be 4 bytes long max
-        LEB128Result result = LEB128.decode(buf);
-        int leb = result.value;
-        consumed = result.bytesRead;
-        metadata.metadataType = OBPMetadataType.fromValue(leb);
-        BitReader br = new BitReader(buf, consumed, bufSize - consumed);
-        switch (metadata.metadataType) {
-            case HDR_CLL:
-                metadata.metadataHdrCll = new OBPMetadata.MetadataHdrCll();
-                metadata.metadataHdrCll.maxCll = (short) br.readBits(16);
-                metadata.metadataHdrCll.maxFall = (short) br.readBits(16);
-                break;
-            case HDR_MDCV:
-                metadata.metadataHdrMdcv = new OBPMetadata.MetadataHdrMdcv();
-                for (int i = 0; i < 3; i++) {
-                    metadata.metadataHdrMdcv.primaryChromaticityX[i] = (short) br.readBits(16);
-                    metadata.metadataHdrMdcv.primaryChromaticityY[i] = (short) br.readBits(16);
-                }
-                metadata.metadataHdrMdcv.whitePointChromaticityX = (short) br.readBits(16);
-                metadata.metadataHdrMdcv.whitePointChromaticityY = (short) br.readBits(16);
-                metadata.metadataHdrMdcv.luminanceMax = br.readBits(32);
-                metadata.metadataHdrMdcv.luminanceMin = br.readBits(32);
-                break;
-            case SCALABILITY:
-                metadata.metadataScalability = new OBPMetadata.MetadataScalability();
-                metadata.metadataScalability.scalabilityModeIdc = (byte) br.readBits(8);
-                if (metadata.metadataScalability.scalabilityModeIdc != 0) {
-                    metadata.metadataScalability.scalabilityStructure = new OBPMetadata.MetadataScalability.ScalabilityStructure();
-                    parseScalabilityStructure(br, metadata.metadataScalability.scalabilityStructure);
-                }
-                break;
-            case ITUT_T35:
-                metadata.metadataItutT35 = new OBPMetadata.MetadataItutT35();
-                metadata.metadataItutT35.ituTT35CountryCode = (byte) br.readBits(8);
-                long offset = 1;
-                if (metadata.metadataItutT35.ituTT35CountryCode == 0xFF) {
-                    metadata.metadataItutT35.ituTT35CountryCodeExtensionByte = (byte) br.readBits(8);
-                    offset++;
-                }
-                metadata.metadataItutT35.ituTT35PayloadBytes = Arrays.copyOfRange(buf, (int) (consumed + offset), buf.length);
-                metadata.metadataItutT35.ituTT35PayloadBytesSize = findItuT35PayloadSize(metadata.metadataItutT35.ituTT35PayloadBytes);
-                break;
-            case TIMECODE:
-                metadata.metadataTimecode = new OBPMetadata.MetadataTimecode();
-                metadata.metadataTimecode.countingType = (byte) br.readBits(5);
-                metadata.metadataTimecode.fullTimestampFlag = br.readBits(1) != 0;
-                metadata.metadataTimecode.discontinuityFlag = br.readBits(1) != 0;
-                metadata.metadataTimecode.cntDroppedFlag = br.readBits(1) != 0;
-                metadata.metadataTimecode.nFrames = (short) br.readBits(9);
-                if (metadata.metadataTimecode.fullTimestampFlag) {
-                    metadata.metadataTimecode.secondsValue = (byte) br.readBits(6);
-                    metadata.metadataTimecode.minutesValue = (byte) br.readBits(6);
-                    metadata.metadataTimecode.hoursValue = (byte) br.readBits(5);
-                } else {
-                    metadata.metadataTimecode.secondsFlag = br.readBits(1) != 0;
-                    if (metadata.metadataTimecode.secondsFlag) {
-                        metadata.metadataTimecode.secondsValue = (byte) br.readBits(6);
-                        metadata.metadataTimecode.minutesFlag = br.readBits(1) != 0;
-                        if (metadata.metadataTimecode.minutesFlag) {
-                            metadata.metadataTimecode.minutesValue = (byte) br.readBits(6);
-                            metadata.metadataTimecode.hoursFlag = br.readBits(1) != 0;
-                            if (metadata.metadataTimecode.hoursFlag) {
-                                metadata.metadataTimecode.hoursValue = (byte) br.readBits(5);
-                            }
-                        }
-                    }
-                }
-                metadata.metadataTimecode.timeOffsetLength = (byte) br.readBits(5);
-                if (metadata.metadataTimecode.timeOffsetLength > 0) {
-                    metadata.metadataTimecode.timeOffsetValue = br.readBits(metadata.metadataTimecode.timeOffsetLength);
-                }
-                break;
-            default:
-                if (metadata.metadataType.getValue() >= 6 && metadata.metadataType.getValue() <= 31) {
-                    metadata.unregistered = new OBPMetadata.Unregistered();
-                    metadata.unregistered.buf = Arrays.copyOfRange(buf, (int) consumed, buf.length);
-                    metadata.unregistered.bufSize = bufSize - consumed;
-                } else {
-                    throw new OBUParseException("Invalid metadata type: " + metadata.metadataType.getValue());
-                }
-        }
-        return metadata;
-    }
-
-
-    /**
-     * Parses a tile list OBU and extracts the relevant fields.
-     * This OBU's returned payload is *NOT* safe to use once the input 'buf' has
-     * been freed, since it may contain references to offsets in that data.
-     *
-     * @param buf     Input OBU buffer. This is expected to *NOT* contain the OBU header.
-     * @param bufSize Size of the input OBU buffer.
-     * @return An {@link OBPTileList} object containing the parsed tile list data.
-     * @throws OBUParseException If the tile list OBU is malformed or too small.
-     */
-    public static OBPTileList parseTileList(byte[] buf, long bufSize) throws OBUParseException {
-        OBPTileList tileList = new OBPTileList();
-        int pos = 0;
-        if (bufSize < 4) {
-            throw new OBUParseException("Tile list OBU must be at least 4 bytes");
-        }
-        tileList.outputFrameWidthInTilesMinus1 = buf[0];
-        tileList.outputFrameHeightInTilesMinus1 = buf[1];
-        tileList.tileCountMinus1 = (short) (((buf[2] & 0xFF) << 8) | (buf[3] & 0xFF));
-        pos += 4;
-        tileList.tileListEntry = new OBPTileList.TileListEntry[tileList.tileCountMinus1 + 1];
-        for (int i = 0; i <= tileList.tileCountMinus1; i++) {
-            if (pos + 5 > bufSize) {
-                throw new OBUParseException("Tile list OBU malformed: Not enough bytes for next tile_list_entry()");
-            }
-            OBPTileList.TileListEntry entry = new OBPTileList.TileListEntry();
-            entry.anchorFrameIdx = buf[pos];
-            entry.anchorTileRow = buf[pos + 1];
-            entry.anchorTileCol = buf[pos + 2];
-            entry.tileDataSizeMinus1 = (short) (((buf[pos + 3] & 0xFF) << 8) | (buf[pos + 4] & 0xFF));
-            pos += 5;
-            int N = 8 * (entry.tileDataSizeMinus1 + 1);
-            if (pos + N > bufSize) {
-                throw new OBUParseException("Tile list OBU malformed: Not enough bytes for next tile_list_entry()'s data");
-            }
-            entry.codedTileData = Arrays.copyOfRange(buf, pos, (pos + N));
-            entry.codedTileDataSize = N;
-            pos += N;
-            tileList.tileListEntry[i] = entry;
-        }
-        return tileList;
     }
 
     private static void copyFilmGrainParams(OBPFilmGrainParameters source, OBPFilmGrainParameters dest) {
@@ -1914,36 +2018,6 @@ public class OBUParser {
         return 0;
     }
 
-    /**
-     * Returns true if the given OBU type value is valid.
-     *
-     * @param type the OBU type value
-     * @return true if the given OBU type value is valid
-     */
-    public static boolean isValidObu(int type) {
-        return VALID_OBU_TYPES.contains(type);
-    }
-
-    /**
-     * Returns true if the given OBU type is valid.
-     *
-     * @param type the OBU type
-     * @return true if the given OBU type is valid
-     */
-    public static boolean isValidObu(OBUType type) {
-        switch (type) {
-            case SEQUENCE_HEADER:
-            case FRAME_HEADER:
-            case TILE_GROUP:
-            case METADATA:
-            case FRAME:
-            case REDUNDANT_FRAME_HEADER:
-                return true;
-            default:
-                return false;
-        }
-    }
-
     private static long readUvlc(BitReader br) throws OBUParseException {
         int leadingZeros = 0;
         while (leadingZeros < 32 && br.readBits(1) == 0) {
@@ -1953,80 +2027,6 @@ public class OBUParser {
             throw new OBUParseException("Invalid UVLC code");
         }
         return br.readBits(leadingZeros) + ((1L << leadingZeros) - 1);
-    }
-
-    /**
-     * Returns true if the given byte starts a fragment. This is denoted as Z in the spec: MUST be set to 1 if the
-     * first OBU element is an OBU fragment that is a continuation of an OBU fragment from the previous packet, and
-     * MUST be set to 0 otherwise.
-     *
-     * @param aggregationHeader a byte
-     * @return true if the given byte starts a fragment
-     */
-    public static boolean startsWithFragment(byte aggregationHeader) {
-        return (aggregationHeader & OBU_START_FRAGMENT_BIT) != 0;
-    }
-
-    /**
-     * Returns true if the given byte ends a fragment. This is denoted as Y in the spec: MUST be set to 1 if the last
-     * OBU element is an OBU fragment that will continue in the next packet, and MUST be set to 0 otherwise.
-     *
-     * @param aggregationHeader a byte
-     * @return true if the given byte ends a fragment
-     */
-    public static boolean endsWithFragment(byte aggregationHeader) {
-        return (aggregationHeader & OBU_END_FRAGMENT_BIT) != 0;
-    }
-
-    /**
-     * Returns true if the given byte is the starts a new sequence. This denoted as N in the spec: MUST be set to 1 if
-     * the packet is the first packet of a coded video sequence, and MUST be set to 0 otherwise.
-     *
-     * @param aggregationHeader a byte
-     * @return true if the given byte starts a new sequence
-     */
-    public static boolean startsNewCodedVideoSequence(byte aggregationHeader) {
-        return (aggregationHeader & OBU_START_SEQUENCE_BIT) != 0;
-    }
-
-    /**
-     * Returns expected number of OBU's.
-     *
-     * @param aggregationHeader a byte
-     * @return expected number of OBU's
-     */
-    public static int obuCount(byte aggregationHeader) {
-        return (aggregationHeader & OBU_COUNT_MASK) >> 4;
-    }
-
-    /**
-     * Returns the OBU type from the given byte.
-     *
-     * @param obuHeader a byte
-     * @return the OBU type
-     */
-    public static int obuType(byte obuHeader) {
-        return (obuHeader & OBU_TYPE_MASK) >>> 3;
-    }
-
-    /**
-     * Returns whether or not the OBU has an extension.
-     *
-     * @param obuHeader a byte
-     * @return true if the OBU has an extension
-     */
-    public static boolean obuHasExtension(byte obuHeader) {
-        return (obuHeader & OBU_EXT_BIT) != 0;
-    }
-
-    /**
-     * Returns whether or not the OBU has a size.
-     *
-     * @param obuHeader a byte
-     * @return true if the OBU has a size
-     */
-    public static boolean obuHasSize(byte obuHeader) {
-        return (obuHeader & OBU_SIZE_PRESENT_BIT) != 0;
     }
 
 }
