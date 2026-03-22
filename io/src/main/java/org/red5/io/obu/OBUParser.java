@@ -348,17 +348,16 @@ public class OBUParser {
      * @param spatialId       A spatial ID previously obtained from the sequence header.
      * @param fh              The {@link OBPFrameHeader} object that will be filled with the parsed data.
      * @param seenFrameHeader Tracking variable as per AV1 spec indicating if a frame header was already seen.
-     * @return 0 on success, -1 on error.
      * @throws OBUParseException If the frame header cannot be parsed or the buffer is invalid.
      */
-    private static int parseFrameHeader(byte[] buf, int bufSize, OBPSequenceHeader seq, OBPState state, int temporalId, int spatialId, OBPFrameHeader fh, AtomicBoolean seenFrameHeader) throws OBUParseException {
+    private static void parseFrameHeader(byte[] buf, int bufSize, OBPSequenceHeader seq, OBPState state, int temporalId, int spatialId, OBPFrameHeader fh, AtomicBoolean seenFrameHeader) throws OBUParseException {
         BitReader br = new BitReader(buf, bufSize);
         if (seenFrameHeader.get()) {
             if (!state.prevFilled) {
                 throw new OBUParseException("SeenFrameHeader is true, but no previous header exists in state");
             }
             copyFrameHeader(state.prev, fh);
-            return 0;
+            return;
         }
         seenFrameHeader.set(true);
         int idLen = 0;
@@ -392,7 +391,7 @@ public class OBUParser {
                 if (seq.filmGrainParamsPresent) {
                     copyFilmGrainParams(state.refGrainParams[fh.frameToShowMapIdx], fh.filmGrainParams);
                 }
-                return 0;
+                return;
             }
             fh.frameType = OBPFrameType.values()[br.readBits(2)];
             frameIsIntra = (fh.frameType == OBPFrameType.INTRA_ONLY_FRAME || fh.frameType == OBPFrameType.KEYFRAME);
@@ -666,7 +665,6 @@ public class OBUParser {
             copyFrameHeader(fh, state.prev);
             state.prevFilled = true;
         }
-        return 0;
     }
 
     /*
@@ -906,10 +904,7 @@ public class OBUParser {
      */
     public static void parseFrame(byte[] buf, int bufSize, OBPSequenceHeader seq, OBPState state, int temporalId, int spatialId, OBPFrameHeader fh, OBPTileGroup tileGroup, AtomicBoolean SeenFrameHeader) throws OBUParseException {
         int startBitPos = 0, endBitPos, headerBytes;
-        int ret = parseFrameHeader(buf, bufSize, seq, state, temporalId, spatialId, fh, SeenFrameHeader);
-        if (ret < 0) {
-            throw new OBUParseException("Failed to parse frame header");
-        }
+        parseFrameHeader(buf, bufSize, seq, state, temporalId, spatialId, fh, SeenFrameHeader);
         endBitPos = state.frameHeaderEndPos;
         headerBytes = (endBitPos - startBitPos) / 8;
         parseTileGroup(buf, headerBytes, bufSize - headerBytes, fh, tileGroup, SeenFrameHeader);
