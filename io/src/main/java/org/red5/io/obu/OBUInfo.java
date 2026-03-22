@@ -14,26 +14,21 @@ import java.util.Arrays;
 public class OBUInfo {
 
     // OBU type
-    public OBUType obuType;
+    private OBUType obuType;
 
     // general OBU info
-    public int size, temporalId, spatialId;
+    private int size;
+    private int temporalId;
+    private int spatialId;
 
     // OBU header info
-    public byte[] prefix = new byte[7];
+    private byte[] prefix = new byte[7];
 
     // OBU data
-    public ByteBuffer data;
+    private ByteBuffer data;
 
     /**
-     * <p>Constructor for OBUInfo.</p>
-     *
-     * @param obuType a {@link org.red5.io.obu.OBUType} object
-     * @param size a int
-     * @param temporalId a int
-     * @param spatialId a int
-     * @param prefix an array of {@link byte} objects
-     * @param data a {@link java.nio.ByteBuffer} object
+     * Fully parameterized constructor for OBUInfo.
      */
     public OBUInfo(OBUType obuType, int size, int temporalId, int spatialId, byte[] prefix, ByteBuffer data) {
         this.obuType = obuType;
@@ -45,13 +40,7 @@ public class OBUInfo {
     }
 
     /**
-     * <p>Constructor for OBUInfo.</p>
-     *
-     * @param obuType a {@link org.red5.io.obu.OBUType} object
-     * @param size a int
-     * @param temporalId a int
-     * @param spatialId a int
-     * @param prefix an array of {@link byte} objects
+     * Constructor for OBUInfo without data buffer.
      */
     public OBUInfo(OBUType obuType, int size, int temporalId, int spatialId, byte[] prefix) {
         this.obuType = obuType;
@@ -62,12 +51,7 @@ public class OBUInfo {
     }
 
     /**
-     * <p>Constructor for OBUInfo.</p>
-     *
-     * @param obuType a {@link org.red5.io.obu.OBUType} object
-     * @param size a int
-     * @param temporalId a int
-     * @param spatialId a int
+     * Constructor for basic OBUInfo without prefix and data.
      */
     public OBUInfo(OBUType obuType, int size, int temporalId, int spatialId) {
         this.obuType = obuType;
@@ -77,10 +61,7 @@ public class OBUInfo {
     }
 
     /**
-     * <p>Constructor for OBUInfo.</p>
-     *
-     * @param obuType a {@link org.red5.io.obu.OBUType} object
-     * @param data a {@link java.nio.ByteBuffer} object
+     * Constructor for OBUInfo containing only type and data.
      */
     public OBUInfo(OBUType obuType, ByteBuffer data) {
         this.obuType = obuType;
@@ -88,12 +69,12 @@ public class OBUInfo {
     }
 
     /**
-     * <p>build.</p>
+     * Static factory method to build an OBUInfo directly from a raw byte array.
      *
-     * @param data an array of {@link byte} objects
-     * @param offset a int
-     * @param length a int
-     * @return a {@link org.red5.io.obu.OBUInfo} object
+     * @param data   The raw byte array containing the OBU.
+     * @param offset The starting offset in the array.
+     * @param length The length of the data to wrap.
+     * @return A newly constructed OBUInfo instance.
      */
     public static OBUInfo build(byte[] data, int offset, int length) {
         OBUType obuType = OBUType.fromValue((data[0] & OBU_FRAME_TYPE_MASK) >>> OBU_FRAME_TYPE_BITSHIFT);
@@ -104,10 +85,57 @@ public class OBUInfo {
     /** {@inheritDoc} */
     @Override
     public String toString() {
-        if (data != null) {
-            return "OBUInfo [obuType=" + obuType + ", size=" + size + ", temporalId=" + temporalId + ", spatialId=" + spatialId + ", prefix=" + Arrays.toString(prefix) + ", data=" + data + "]";
+        if (getData() != null) {
+            return "OBUInfo [obuType=" + getObuType() + ", size=" + getSize() + ", temporalId=" + getTemporalId() + ", spatialId=" + getSpatialId() + ", prefix=" + Arrays.toString(getPrefix()) + ", data=" + getData() + "]";
         }
-        return "OBUInfo [obuType=" + obuType + ", size=" + size + ", temporalId=" + temporalId + ", spatialId=" + spatialId + ", prefix=" + Arrays.toString(prefix) + "]";
+        return "OBUInfo [obuType=" + getObuType() + ", size=" + getSize() + ", temporalId=" + getTemporalId() + ", spatialId=" + getSpatialId() + ", prefix=" + Arrays.toString(getPrefix()) + "]";
     }
 
+    public OBUType getObuType() {
+        return obuType;
+    }
+
+    public void setObuType(OBUType obuType) {
+        this.obuType = obuType;
+    }
+
+    public int getSize() {
+        return size;
+    }
+
+    public void setSize(int size) {
+        this.size = size;
+    }
+
+    public int getTemporalId() {
+        return temporalId;
+    }
+
+    public void setTemporalId(int temporalId) {
+        this.temporalId = temporalId;
+    }
+
+    public int getSpatialId() {
+        return spatialId;
+    }
+
+    public void setSpatialId(int spatialId) {
+        this.spatialId = spatialId;
+    }
+
+    public byte[] getPrefix() {
+        return prefix;
+    }
+
+    public void setPrefix(byte[] prefix) {
+        this.prefix = prefix;
+    }
+
+    public ByteBuffer getData() {
+        return data;
+    }
+
+    public void setData(ByteBuffer data) {
+        this.data = data;
+    }
 }

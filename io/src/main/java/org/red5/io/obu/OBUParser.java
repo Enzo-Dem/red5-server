@@ -90,15 +90,15 @@ public class OBUParser {
         OBUInfo info = new OBUInfo(OBUType.fromValue(obuType), ByteBuffer.allocate(1180));
         boolean obuExtensionFlag = obuHasExtension(buf[pos]);
         boolean obuHasSizeField = obuHasSize(buf[pos]);
-        log.trace("OBU type: {} extension? {} size field? {}", info.obuType, obuExtensionFlag, obuHasSizeField);
+        log.trace("OBU type: {} extension? {} size field? {}", info.getObuType(), obuExtensionFlag, obuHasSizeField);
         pos++; // move past the OBU header
         if (obuExtensionFlag) {
             if (bufSize < pos + 1) {
                 throw new OBUParseException("Buffer is too small to contain an OBU extension header");
             }
-            info.temporalId = (buf[pos] & 0xE0) >> 5;
-            info.spatialId = (buf[pos] & 0x18) >> 3;
-            log.trace("Temporal id: {} spatial id: {}", info.temporalId, info.spatialId);
+            info.setTemporalId((buf[pos] & 0xE0) >> 5);
+            info.setSpatialId((buf[pos] & 0x18) >> 3);
+            log.trace("Temporal id: {} spatial id: {}", info.getTemporalId(), info.getSpatialId());
             pos++; // move past the OBU extension header
         }
         if (obuHasSizeField) {
@@ -106,14 +106,14 @@ public class OBUParser {
             System.arraycopy(buf, pos, lengthBytes, 0, lengthBytes.length);
             LEB128Result result = LEB128.decode(lengthBytes);
             pos += result.bytesRead;
-            info.size = result.value;
-            log.trace("OBU had size field: {}", info.size);
+            info.setSize(result.value);
+            log.trace("OBU had size field: {}", info.getSize());
         } else {
-            info.size = bufSize - pos;
+            info.setSize(bufSize - pos);
         }
-        log.trace("OBU size: {}", info.size);
-        info.data = ByteBuffer.wrap(Arrays.copyOfRange(buf, pos, (pos + info.size)));
-        if (info.size > bufSize - pos) {
+        log.trace("OBU size: {}", info.getSize());
+        info.setData(ByteBuffer.wrap(Arrays.copyOfRange(buf, pos, (pos + info.getSize()))));
+        if (info.getSize() > bufSize - pos) {
             throw new OBUParseException("Invalid OBU size: larger than remaining buffer");
         }
         return info;

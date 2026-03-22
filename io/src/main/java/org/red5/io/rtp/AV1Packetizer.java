@@ -265,8 +265,8 @@ public class AV1Packetizer {
         int maxFragmentSize = mtu - aggregationHeaderLength - 2;
         for (OBUInfo obuInfo : obuInfos) {
             // obuInfo.data includes the OBU header, but no aggregation header nor size field
-            byte frameType = (byte) ((obuInfo.obuType.getValue() & OBU_FRAME_TYPE_MASK) >> OBU_FRAME_TYPE_BITSHIFT);
-            byte[] payload = obuInfo.data.array();
+            byte frameType = (byte) ((obuInfo.getObuType().getValue() & OBU_FRAME_TYPE_MASK) >> OBU_FRAME_TYPE_BITSHIFT);
+            byte[] payload = obuInfo.getData().array();
             int payloadDataRemaining = payload.length, payloadDataIndex = 0;
             logger.debug("Frame type: {}", frameType);
             // Make sure the fragment/payload size is correct
