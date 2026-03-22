@@ -61,45 +61,17 @@ public class OBUParser {
     /** Constant <code>OBU_TYPE_SHIFT=3</code> */
     public static final byte OBU_TYPE_SHIFT = 3;
 
-    // constexpr uint8_t kAv1ObuTypeSequenceHeader = 1 << 3;
-    // constexpr uint8_t kAv1ObuTypeTemporalDelimiter = 2 << 3;
-    // constexpr uint8_t kAv1ObuTypeFrameHeader = 3 << 3;
-    // constexpr uint8_t kAv1ObuTypeTileGroup = 4 << 3;
-    // constexpr uint8_t kAv1ObuTypeMetadata = 5 << 3;
-    // constexpr uint8_t kAv1ObuTypeFrame = 6 << 3;
-    // constexpr uint8_t kAv1ObuTypeTileList = 8 << 3;
-    // constexpr uint8_t kAv1ObuExtensionPresentBit = 0b0'0000'100;
-    // constexpr uint8_t kAv1ObuSizePresentBit = 0b0'0000'010;
-    // constexpr uint8_t kAv1ObuExtensionS1T1 = 0b001'01'000;
 
-    /*
-    * obp_get_next_obu parses the next OBU header in a packet containing a set of one or more OBUs
-    * (e.g. an IVF or ISOBMFF packet) and returns its location in the buffer, as well as all
-    * relevant data from the header.
-    *
-    * Input:
-    *     buf      - Input packet buffer.
-    *     buf_size - Size of the input packet buffer.
-    *     err      - An error buffer and buffer size to write any error messages into.
-    *
-    * Output:
-    *     obu_type    - The type of OBU.
-    *     offset      - The offset into the buffer where this OBU starts, excluding the OBU header.
-    *     obu_size    - The size of the OBU, excluding the size of the OBU header.
-    *     temporal_id - The temporal ID of the OBU.
-    *     spatial_id  - The spatial ID of the OBU.
-    *
-    * Returns:
-    *     0 on success, -1 on error.
-    */
     /**
-     * <p>getNextObu.</p>
+     * Parses the next OBU header in a packet containing a set of one or more OBUs
+     * (e.g. an IVF or ISOBMFF packet) and returns its location in the buffer, as well as all
+     * relevant data from the header.
      *
-     * @param buf an array of {@link byte} objects
-     * @param offset a int
-     * @param bufSize a int
-     * @return a {@link org.red5.io.obu.OBUInfo} object
-     * @throws org.red5.io.obu.OBUParseException if any.
+     * @param buf     Input packet buffer.
+     * @param offset  The offset into the buffer where this OBU starts.
+     * @param bufSize Size of the input packet buffer.
+     * @return An {@link OBUInfo} object containing the OBU type, offset, size, and parsed data.
+     * @throws OBUParseException If the buffer is too small, the OBU type is invalid, or parsing fails.
      */
     public static OBUInfo getNextObu(byte[] buf, int offset, int bufSize) throws OBUParseException {
         log.trace("getNextObu - buffer length: {} size: {} offset: {}", buf.length, bufSize, offset);
@@ -147,28 +119,14 @@ public class OBUParser {
         return info;
     }
 
-    /*
-     * obp_parse_sequence_header parses a sequence header OBU and fills out the fields in a
-     * user-provided OBPSequenceHeader structure.
-     *
-     * Input:
-     *     buf      - Input OBU buffer. This is expected to *NOT* contain the OBU header.
-     *     buf_size - Size of the input OBU buffer.
-     *     err      - An error buffer and buffer size to write any error messages into.
-     *
-     * Output:
-     *     seq_header - A user provided structure that will be filled in with all the parsed data.
-     *
-     * Returns:
-     *     0 on success, -1 on error.
-     */
+
     /**
-     * <p>parseSequenceHeader.</p>
+     * Parses a sequence header OBU and extracts the relevant data.
      *
-     * @param buf an array of {@link byte} objects
-     * @param bufSize a int
-     * @return a {@link org.red5.io.obu.OBPSequenceHeader} object
-     * @throws org.red5.io.obu.OBUParseException if any.
+     * @param buf     Input OBU buffer. This is expected to *NOT* contain the OBU header.
+     * @param bufSize Size of the input OBU buffer.
+     * @return An {@link OBPSequenceHeader} object filled with the parsed data.
+     * @throws OBUParseException If the sequence header cannot be parsed or the buffer is invalid.
      */
     public static OBPSequenceHeader parseSequenceHeader(byte[] buf, int bufSize) throws OBUParseException {
         BitReader br = new BitReader(buf, bufSize);
@@ -378,25 +336,21 @@ public class OBUParser {
         return seq;
     }
 
-    /*
-    * obp_parse_frame_header parses a frame header OBU and fills out the fields in a user-provided
-    * OBPFrameHeader structure.
-    *
-    * Input:
-    *     buf          - Input OBU buffer. This is expected to *NOT* contain the OBU header.
-    *     buf_size     - Size of the input OBU buffer.
-    *     state        - An opaque state structure. Must be zeroed by the user on first use.
-    *     temporal_id  - A temporal ID previously obtained from obu_parse_sequence header.
-    *     spatial_id   - A spatial ID previously obtained from obu_parse_sequence header.
-    *     err          - An error buffer and buffer size to write any error messages into.
-    *
-    * Output:
-    *     frame_header    - A user provided structure that will be filled in with all the parsed data.
-    *     SeenFrameHeader - Whether or not a frame header has beee seen. Tracking variable as per AV1 spec.
-    *
-    * Returns:
-    *     0 on success, -1 on error.
-    */
+
+    /**
+     * Parses a frame header OBU and fills out the fields in the provided {@link OBPFrameHeader} structure.
+     *
+     * @param buf             Input OBU buffer. This is expected to *NOT* contain the OBU header.
+     * @param bufSize         Size of the input OBU buffer.
+     * @param seq             The sequence header associated with this frame.
+     * @param state           An opaque state structure. Must be zeroed by the user on first use.
+     * @param temporalId      A temporal ID previously obtained from the sequence header.
+     * @param spatialId       A spatial ID previously obtained from the sequence header.
+     * @param fh              The {@link OBPFrameHeader} object that will be filled with the parsed data.
+     * @param seenFrameHeader Tracking variable as per AV1 spec indicating if a frame header was already seen.
+     * @return 0 on success, -1 on error.
+     * @throws OBUParseException If the frame header cannot be parsed or the buffer is invalid.
+     */
     private static int parseFrameHeader(byte[] buf, int bufSize, OBPSequenceHeader seq, OBPState state, int temporalId, int spatialId, OBPFrameHeader fh, AtomicBoolean seenFrameHeader) throws OBUParseException {
         BitReader br = new BitReader(buf, bufSize);
         if (seenFrameHeader.get()) {
@@ -678,17 +632,22 @@ public class OBUParser {
                 state.refRenderWidth[i] = fh.renderWidth;
                 state.refRenderHeight[i] = fh.renderHeight;
                 state.refFrameId[i] = fh.currentFrameId;
+
+                // Save film grain parameters
                 copyFilmGrainParams(fh.filmGrainParams, state.refGrainParams[i]);
-                // save_grain_params()
+
+                // Save global motion parameters into the state
                 for (int j = 0; j < 8; j++) {
                     System.arraycopy(fh.globalMotionParams.gmParams[j], 0, state.savedGmParams[i][j], 0, 6);
                 }
-                // save_segmentation_params()
+
+                // Save segmentation features and data
                 for (int j = 0; j < 8; j++) {
                     System.arraycopy(fh.segmentationParams.featureEnabled[j], 0, state.savedFeatureEnabled[i][j], 0, 8);
                     System.arraycopy(fh.segmentationParams.featureData[j], 0, state.savedFeatureData[i][j], 0, 8);
                 }
-                // save_loop_filter_params()
+
+                // Save loop filter deltas (reference and mode) into the state
                 System.arraycopy(fh.loopFilterParams.loopFilterRefDeltas, 0, state.savedLoopFilterRefDeltas[i], 0, 8);
                 System.arraycopy(fh.loopFilterParams.loopFilterModeDeltas, 0, state.savedLoopFilterModeDeltas[i], 0, 2);
             }
@@ -929,39 +888,21 @@ public class OBUParser {
         return fh.quantizationParams.baseQIdx;
     }
 
-    /*
-     * obp_parse_frame parses a frame OBU and fills out the fields in user-provided OBPFrameHeader
-     * and OBPTileGroup structures.
-     *
-     * Input:
-     *     buf          - Input OBU buffer. This is expected to *NOT* contain the OBU header.
-     *     buf_size     - Size of the input OBU buffer.
-     *     state        - An opaque state structure. Must be zeroed by the user on first use.
-     *     temporal_id  - A temporal ID previously obtained from obu_parse_sequence header.
-     *     spatial_id   - A spatial ID previously obtained from obu_parse_sequence header.
-     *     err          - An error buffer and buffer size to write any error messages into.
-     *
-     * Output:
-     *     frame_header    - A user provided structure that will be filled in with all the parsed data.
-     *     tile_group      - A user provided structure that will be filled in with all the parsed data.
-     *     SeenFrameHeader - Whether or not a frame header has been seen. Tracking variable as per AV1 spec.
-     *
-     * Returns:
-     *     0 on success, -1 on error.
-     */
+
     /**
-     * <p>parseFrame.</p>
+     * Parses a frame OBU and fills out the fields in the user-provided {@link OBPFrameHeader}
+     * and {@link OBPTileGroup} structures.
      *
-     * @param buf an array of {@link byte} objects
-     * @param bufSize a int
-     * @param seq a {@link org.red5.io.obu.OBPSequenceHeader} object
-     * @param state a {@link org.red5.io.obu.OBPState} object
-     * @param temporalId a int
-     * @param spatialId a int
-     * @param fh a {@link org.red5.io.obu.OBPFrameHeader} object
-     * @param tileGroup a {@link org.red5.io.obu.OBPTileGroup} object
-     * @param SeenFrameHeader a {@link java.util.concurrent.atomic.AtomicBoolean} object
-     * @throws org.red5.io.obu.OBUParseException if any.
+     * @param buf             Input OBU buffer. This is expected to *NOT* contain the OBU header.
+     * @param bufSize         Size of the input OBU buffer.
+     * @param seq             The sequence header associated with this frame.
+     * @param state           An opaque state structure. Must be zeroed by the user on first use.
+     * @param temporalId      A temporal ID previously obtained from the sequence header.
+     * @param spatialId       A spatial ID previously obtained from the sequence header.
+     * @param fh              The {@link OBPFrameHeader} structure to be filled with the parsed data.
+     * @param tileGroup       The {@link OBPTileGroup} structure to be filled with the parsed data.
+     * @param SeenFrameHeader Tracking variable as per AV1 spec indicating if a frame header has been seen.
+     * @throws OBUParseException If the frame header or tile group fails to parse.
      */
     public static void parseFrame(byte[] buf, int bufSize, OBPSequenceHeader seq, OBPState state, int temporalId, int spatialId, OBPFrameHeader fh, OBPTileGroup tileGroup, AtomicBoolean SeenFrameHeader) throws OBUParseException {
         int startBitPos = 0, endBitPos, headerBytes;
@@ -974,23 +915,18 @@ public class OBUParser {
         parseTileGroup(buf, headerBytes, bufSize - headerBytes, fh, tileGroup, SeenFrameHeader);
     }
 
-    /*
-    * obp_parse_tile_group parses a tile group OBU and fills out the fields in a
-    * user-provided OBPTileGroup structure.
-    *
-    * Input:
-    *     buf          - Input OBU buffer. This is expected to *NOT* contain the OBU header.
-    *     buf_size     - Size of the input OBU buffer.
-    *     frame_header - A filled in frame header OBU previously seen.
-    *     err          - An error buffer and buffer size to write any error messages into.
-    *
-    * Output:
-    *     tile_group      - A user provided structure that will be filled in with all the parsed data.
-    *     SeenFrameHeader - Whether or not a frame header has been seen. Tracking variable as per AV1 spec.
-    *
-    * Returns:
-    *     0 on success, -1 on error.
-    */
+
+    /**
+     * Parses a tile group OBU and fills out the fields in the provided {@link OBPTileGroup} structure.
+     *
+     * @param buf             Input OBU buffer. This is expected to *NOT* contain the OBU header.
+     * @param offset          The offset into the buffer where the tile group starts.
+     * @param size            Size of the input OBU buffer.
+     * @param fh              A filled-in frame header OBU previously seen.
+     * @param tileGroup       The {@link OBPTileGroup} structure to be filled with the parsed data.
+     * @param SeenFrameHeader Tracking variable as per AV1 spec indicating if a frame header has been seen.
+     * @throws OBUParseException If there are not enough bytes left to read the tile sizes.
+     */
     private static void parseTileGroup(byte[] buf, int offset, int size, OBPFrameHeader fh, OBPTileGroup tileGroup, AtomicBoolean SeenFrameHeader) throws OBUParseException {
         BitReader br = new BitReader(buf, offset, size);
         tileGroup.numTiles = (short) (fh.tileInfo.tileCols * fh.tileInfo.tileRows);
@@ -1037,29 +973,16 @@ public class OBUParser {
         }
     }
 
-    /*
-    * obp_parse_metadata parses a metadata OBU and fills out the fields in a user-provided OBPMetadata
-    * structure. This OBU's returned payload is *NOT* safe to use once the user-provided 'buf' has
-    * been freed, since it may fill the structure with pointers to offsets in that data.
-    *
-    * Input:
-    *     buf      - Input OBU buffer. This is expected to *NOT* contain the OBU header.
-    *     buf_size - Size of the input OBU buffer.
-    *     err      - An error buffer and buffer size to write any error messages into.
-    *
-    * Output:
-    *     metadata - A user provided structure that will be filled in with all the parsed data.
-    *
-    * Returns:
-    *     0 on success, -1 on error.
-    */
+
     /**
-     * <p>parseMetadata.</p>
+     * Parses a metadata OBU and extracts the relevant fields.
+     * This OBU's returned payload is *NOT* safe to use once the input 'buf' has
+     * been freed, since it may contain references to offsets in that data.
      *
-     * @param buf an array of {@link byte} objects
-     * @param bufSize a int
-     * @return a {@link org.red5.io.obu.OBPMetadata} object
-     * @throws org.red5.io.obu.OBUParseException if any.
+     * @param buf     Input OBU buffer. This is expected to *NOT* contain the OBU header.
+     * @param bufSize Size of the input OBU buffer.
+     * @return An {@link OBPMetadata} object containing the parsed metadata.
+     * @throws OBUParseException If the metadata type is invalid or parsing fails.
      */
     public static OBPMetadata parseMetadata(byte[] buf, int bufSize) throws OBUParseException {
         OBPMetadata metadata = new OBPMetadata();
@@ -1068,9 +991,6 @@ public class OBUParser {
         LEB128Result result = LEB128.decode(buf);
         int leb = result.value;
         consumed = result.bytesRead;
-        // old logic
-        //int leb = LEB128.encode(Arrays.copyOfRange(buf, 0, 4));
-        //consumed = 4;
         metadata.metadataType = OBPMetadataType.fromValue(leb);
         BitReader br = new BitReader(buf, consumed, bufSize - consumed);
         switch (metadata.metadataType) {
@@ -1151,29 +1071,16 @@ public class OBUParser {
         return metadata;
     }
 
-    /*
-    * obp_parse_tile_list parses a tile list OBU and fills out the fields in a user-provided OBPTileList
-    * structure. This OBU's returned payload is *NOT* safe to use once the user-provided 'buf' has
-    * been freed, since it may fill the structure with pointers to offsets in that data.
-    *
-    * Input:
-    *     buf      - Input OBU buffer. This is expected to *NOT* contain the OBU header.
-    *     buf_size - Size of the input OBU buffer.
-    *     err      - An error buffer and buffer size to write any error messages into.
-    *
-    * Output:
-    *     tile_list - A user provided structure that will be filled in with all the parsed data.
-    *
-    * Returns:
-    *     0 on success, -1 on error.
-    */
+
     /**
-     * <p>parseTileList.</p>
+     * Parses a tile list OBU and extracts the relevant fields.
+     * This OBU's returned payload is *NOT* safe to use once the input 'buf' has
+     * been freed, since it may contain references to offsets in that data.
      *
-     * @param buf an array of {@link byte} objects
-     * @param bufSize a long
-     * @return a {@link org.red5.io.obu.OBPTileList} object
-     * @throws org.red5.io.obu.OBUParseException if any.
+     * @param buf     Input OBU buffer. This is expected to *NOT* contain the OBU header.
+     * @param bufSize Size of the input OBU buffer.
+     * @return An {@link OBPTileList} object containing the parsed tile list data.
+     * @throws OBUParseException If the tile list OBU is malformed or too small.
      */
     public static OBPTileList parseTileList(byte[] buf, long bufSize) throws OBUParseException {
         OBPTileList tileList = new OBPTileList();
@@ -1268,7 +1175,7 @@ public class OBUParser {
             throw new OBUParseException("Invalid order hints");
         }
 
-        // find_latest_backward()
+        // Find the latest backward reference
         ref = -1;
         latestOrderHint = 0;
         for (int i = 0; i < 8; i++) {
@@ -1283,7 +1190,7 @@ public class OBUParser {
             usedFrame[ref] = 1;
         }
 
-        // find_earliest_backward()
+        // Find the earliest backward reference
         ref = -1;
         earliestOrderHint = 0;
         for (int i = 0; i < 8; i++) {
@@ -1298,7 +1205,7 @@ public class OBUParser {
             usedFrame[ref] = 1;
         }
 
-        // find_earliest_backward()
+        // Find the second earliest backward reference
         ref = -1;
         earliestOrderHint = 0;
         for (int i = 0; i < 8; i++) {
@@ -2031,14 +1938,11 @@ public class OBUParser {
     public static boolean isValidObu(OBUType type) {
         switch (type) {
             case SEQUENCE_HEADER:
-                //case TEMPORAL_DELIMITER: // not meant for rtp transport
             case FRAME_HEADER:
             case TILE_GROUP:
             case METADATA:
             case FRAME:
             case REDUNDANT_FRAME_HEADER:
-                //case TILE_LIST: // not meant for rtp transport
-                //case PADDING: // not meant for rtp transport
                 return true;
             default:
                 return false;
